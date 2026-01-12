@@ -102,8 +102,11 @@ function computeOptimalJumpAndGlide(A, B, T) {
     const d_fall_used = Math.min(d_total, d_fall_max);
     const d_glide_used = d_total - d_fall_used; // <= d_glide_max por el check de arriba
 
-    const dir = normalize(subtract(T, J));
-    const G = add(J, scale(dir, d_fall_used / pToM)); // ✅ punto donde AUTO-DEPLOYa (G)
+    // Dirección del BUS (no del target)
+const busDir = normalize(subtract(B, A));
+
+// Durante la caída solo driftas en dirección del bus
+const G = add(J, scale(busDir, d_fall_used / pToM));
 
     const t_bus = distance(A, J) / v_bus * pToM;
     const t_total = t_bus + t_fall + t_glide;

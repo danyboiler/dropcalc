@@ -67,82 +67,65 @@ function pointOnSegment(A, B, t) {
 function computeOptimalJumpAndGlide(A, B, T) {
   const pToM = CONFIG.pixelsToMeters;
 
-  // Physics Constants
+  // Physics Constants (ajusta H_deploy si quieres calibrar)
   const v_bus = 73.3;        // m/s
-  const v_fall_h = 14.5;     // m/s
-  const v_fall_v = 32.0;     // m/s
-  const v_glide_h = 17;      // m/s
-  const v_glide_v = 7;       // m/s
+  const v_fall_h = 14.5;     // m/s (drift horizontal en caída)
+  const v_fall_v = 32.0;     // m/s (caída vertical)
+  const v_glide_h = 17;      // m/s (horizontal con paracaídas)
+  const v_glide_v = 7;       // m/s (descenso vertical con paracaídas)
   const H_bus = 832.0;       // m
-  const H_deploy = 30.0;     // m
+  const H_deploy = 100.0;    // ✅ AUTO-DEPLOY HEIGHT (prueba 90–120)
 
-  const N = 400; // Sample count for optimization
-  const H_total_drop = H_bus - H_deploy;
-  const t_fall_max = H_total_drop / v_fall_v;
-  const d_fall_max_meters = v_fall_h * t_fall_max;
-  const t_glide_min_height = H_deploy / v_glide_v;
-  const d_glide_min_height = v_glide_h * t_glide_min_height;
-  const d_standard_max = d_fall_max_meters + d_glide_min_height;
+  const N = 400;
 
-  let minTotalTime = Infinity;
-  let bestContext = null;
+  // Tiempos FIJOS por autodeploy (no dependen de distancia)
+  const t_fall = (H_bus - H_deploy) / v_fall_v;
+  const t_glide = H_deploy / v_glide_v;
+
+  // Distancias máximas horizontales (si vas “recto” al target)
+  const d_fall_max = v_fall_h * t_fall;
+  const d_glide_max = v_glide_h * t_glide;
+
+  let best = null;
+  let bestTime = Infinity;
 
   for (let i = 0; i <= N; i++) {
     const t = i / N;
     const J = pointOnSegment(A, B, t);
-    const d_meters = distance(J, T) * pToM;
 
-    let t_fall = 0, t_glide = 0;
-    let d_fall_actual = 0, d_glide_actual = 0;
-    let valid = false, G_candidate = null;
+    const d_total = distance(J, T) * pToM;
 
-    if (d_meters <= d_standard_max) {
-      const d_fall_cap = Math.min(d_meters, d_fall_max_meters);
-      const d_remaining = d_meters - d_fall_cap;
-      const d_glide_req = Math.max(d_remaining, d_glide_min_height);
-      const dir = normalize(subtract(T, J));
-      G_candidate = subtract(T, scale(dir, d_glide_req / pToM));
+    // Si ni con caída máxima + glide máximo llegas, no es reachable con autodeploy
+    if (d_total > d_fall_max + d_glide_max) continue;
 
-      const dist_J_G_meters = distance(J, G_candidate) * pToM;
+    // En autodeploy: caes lo más posible (hasta d_fall_max) y el resto lo haces gliding
+    const d_fall_used = Math.min(d_total, d_fall_max);
+    const d_glide_used = d_total - d_fall_used; // <= d_glide_max por el check de arriba
 
-      if (dist_J_G_meters <= d_fall_max_meters + 1) {
-        valid = true;
-        d_fall_actual = dist_J_G_meters;
-        d_glide_actual = d_glide_req;
-        t_fall = t_fall_max;
-        t_glide = d_glide_actual / v_glide_h;
-      }
-    } else {
-      const ratio = v_glide_h / v_glide_v;
-      const C1 = v_fall_h - (v_fall_v * ratio);
-      const C2 = ratio * H_bus;
-      const t_f = (d_meters - C2) / C1;
-      const t_g = (H_bus - v_fall_v * t_f) / v_glide_v;
-
-      if (t_f >= 0 && t_g >= 0) {
-        valid = true;
-        t_fall = t_f; t_glide = t_g;
-        d_fall_actual = v_fall_h * t_fall;
-        d_glide_actual = v_glide_h * t_glide;
-        const dir = normalize(subtract(T, J));
-        G_candidate = add(J, scale(dir, d_fall_actual / pToM));
-      }
-    }
-
-    if (!valid || !G_candidate) continue;
+    const dir = normalize(subtract(T, J));
+    const G = add(J, scale(dir, d_fall_used / pToM)); // ✅ punto donde AUTO-DEPLOYa (G)
 
     const t_bus = distance(A, J) / v_bus * pToM;
-    const t_total_calc = t_bus + t_fall + t_glide;
+    const t_total = t_bus + t_fall + t_glide;
 
-    if (t_total_calc < minTotalTime) {
-      minTotalTime = t_total_calc;
-      bestContext = { reachable: true, t_total: t_total_calc, t_bus, t_fall, t_glide, d_fall_meters: d_fall_actual, d_glide_meters: d_glide_actual, J, G: G_candidate };
+    if (t_total < bestTime) {
+      bestTime = t_total;
+      best = {
+        reachable: true,
+        t_total,
+        t_bus,
+        t_fall,
+        t_glide,
+        d_fall_meters: d_fall_used,
+        d_glide_meters: d_glide_used,
+        J,
+        G
+      };
     }
   }
 
-  return bestContext || { reachable: false, t_total: Infinity };
+  return best || { reachable: false, t_total: Infinity };
 }
-
 function initMap() {
   state.map = L.map('map', {
     crs: L.CRS.Simple,
